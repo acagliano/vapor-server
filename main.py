@@ -28,6 +28,7 @@ class GZipRotator:
 					f_out.writelines(f_in)
 			os.remove(dest)
 		except:
+			print(traceback.format_exc(limit=None, chain=True))
 			
     
 class Vapor:
