@@ -1,4 +1,4 @@
-import socket,threading,ctypes,hashlib,json,os,sys,time,math,traceback,re,ipaddress,random,logigng
+import socket,threading,ctypes,hashlib,json,os,sys,time,math,traceback,logging
 
 PORT=51000
 BUFFER_SIZE=2048
@@ -112,16 +112,16 @@ class Client:
         
     def send(self, data):
         packet_length = len(data)
-	i = 0
-	try:
-		while packet_length:
-			bytes_sent = self.conn.send(bytes(data[i:min(packet_length, BUFFER_SIZE)]))
-			if not bytes_sent:
-				raise Exception("packet transmission error")
-				break
-			i+=bytes_sent
-			packet_length-=bytes_sent
-	except: self.server.log(logging.ERROR, f"conn.send() error for Client at {self.ip}")
+        i = 0
+        try:
+            while packet_length:
+                bytes_sent = self.conn.send(bytes(data[i:min(packet_length, BUFFER_SIZE)]))
+                if not bytes_sent:
+                    raise Exception("packet transmission error")
+                    break
+                i+=bytes_sent
+                packet_length-=bytes_sent
+        except: self.server.log(logging.ERROR, f"conn.send() error for Client at {self.ip}")
           
     def handle_connection(self):
         while self.server.online:
