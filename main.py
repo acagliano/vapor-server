@@ -166,6 +166,9 @@ class Client:
     def update_packages(self):
         self.send([ControlCodes["MESSAGE"]] + list("Not yet implemented\0"))
                                                 
-                                                
+
+if __name__ == '__main__':
+	
+	server = Vapor()
                                     
         
