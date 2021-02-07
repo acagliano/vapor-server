@@ -44,13 +44,13 @@ class Vapor:
         self.logger = logging.getLogger("vapor")
         formatter = logging.Formatter('%(levelname)s: %(asctime)s: %(message)s')
         console_handler = logging.StreamHandler()
-	console_handler.setFormatter(formatter)
-	self.logger.addHandler(console_handler)
+        console_handler.setFormatter(formatter)
+        self.logger.addHandler(console_handler)
         file_handler = TimedRotatingFileHandler("logs/vapor.log", when="midnight", interval=1, backupCount=5)
-	file_handler.setFormatter(formatter)
-	file_handler.setLevel(logging.DEBUG)
-	file_handler.rotator = GZipRotator()
-	self.logger.addHandler(file_handler)
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.rotator = GZipRotator()
+        self.logger.addHandler(file_handler)
         
         # Begin server init
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -79,29 +79,28 @@ class Vapor:
         self.logger.log(lvl, msg)         
             
     def console(self):
-		while True:
-			try:
-				line = input("")
-				print("[Console] "+line)
-				if " " in line:
-					line = line.split(" ", 1)
-				else:
-					line = [line]
-				if line[0]=="list":
+        while True:
+            try:
+                line = input("")
+                print("[Console] "+line)
+                if " " in line:
+                    line = line.split(" ", 1)
+                else:
+                    line = [line]
+                if line[0]=="list":
                     ostring=""
                     for c in self.clients.keys():
                         ostring+=f"{self.clients[c].ip}\n"
                     ostring+=f"{len(self.clients)} users connected!"
-                    self.log(logging.INFO, ostring) 
+                    self.log(logging.INFO, ostring)
                 elif line[0]=="stop":
                     raise ServerExit()
-                    
-			except (KeyboardInterrupt, ServerExit) as e:
+            except (KeyboardInterrupt, ServerExit) as e:
                 self.server.log(logging.INFO, "The server was stopped from Console")
                 self.online=False
-				break
-			except:
-				print(traceback.format_exc(limit=None, chain=True))
+                break
+            except:
+                print(traceback.format_exc(limit=None, chain=True))
             
 class Client:
     def __init__(self, conn, addr, server):
