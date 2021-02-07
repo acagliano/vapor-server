@@ -20,16 +20,16 @@ class ServerExit(Exception):
     pass
 
 class GZipRotator:
-	def __call__(self, source, dest):
-		try:
-			os.rename(source, dest)
-			log_archive = f"logs/{datetime.now().year}-{datetime.now().month}_server.log.gz"
-			with open(dest, 'rb') as f_in:
-				with gzip.open(f"{log_archive}", 'ab') as f_out:
-					f_out.writelines(f_in)
-			os.remove(dest)
-		except:
-			print(traceback.format_exc(limit=None, chain=True))
+    def __call__(self, source, dest):
+        try:
+            os.rename(source, dest)
+            log_archive = f"logs/{datetime.now().year}-{datetime.now().month}_server.log.gz"
+            with open(dest, 'rb') as f_in:
+                with gzip.open(f"{log_archive}", 'ab') as f_out:
+                    f_out.writelines(f_in)
+            os.remove(dest)
+        except:
+            print(traceback.format_exc(limit=None, chain=True))
 			
     
 class Vapor:
