@@ -1,4 +1,5 @@
-import socket,threading,ctypes,hashlib,json,os,sys,time,math,traceback,logging
+import socket,threading,ctypes,hashlib,json,os,sys,time,math,traceback,logging,gzip
+from logging.handlers import TimedRotatingFileHandler
 
 PORT=51000
 BUFFER_SIZE=2048
@@ -39,44 +40,54 @@ class Vapor:
                 os.makedirs(dir)
             except:
                 pass
-        
-        # Init logging => To Console and to File
-        self.logger = logging.getLogger("vapor")
-        formatter = logging.Formatter('%(levelname)s: %(asctime)s: %(message)s')
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        self.logger.addHandler(console_handler)
-        file_handler = TimedRotatingFileHandler("logs/vapor.log", when="midnight", interval=1, backupCount=5)
-        file_handler.setFormatter(formatter)
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.rotator = GZipRotator()
-        self.logger.addHandler(file_handler)
+        try:
+            # Init logging => To Console and to File
+            self.logger = logging.getLogger("vapor.logger")
+            formatter = logging.Formatter('%(levelname)s: %(asctime)s: %(message)s')
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
+            file_handler = TimedRotatingFileHandler("logs/vapor.log", when="midnight", interval=1, backupCount=5)
+            file_handler.setFormatter(formatter)
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.rotator = GZipRotator()
+            self.logger.addHandler(file_handler)
+        except:
+            print(traceback.format_exc(limit=None, chain=True))
         
         # Begin server init
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.settimeout(None)
-        self.port = PORT
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind(('', self.port))                 # Now wait for client connection.
-        self.online=True
-        self.main_thread = threading.Thread(target=self.main)
-        self.main_thread.start()
-        self.console()
+        try:
+            self.clients={}
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.settimeout(None)
+            self.port = PORT
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.sock.bind(('', self.port))                 # Now wait for client connection.
+            self.online=True
+            self.main_thread = threading.Thread(target=self.main)
+            self.main_thread.start()
+            self.console()
+        except:
+            print(traceback.format_exc(limit=None, chain=True))
         
     def main(self):
         while self.online:
             try:
                 self.sock.listen()
                 conn, addr = self.sock.accept()
-                self.log(logging.INFO, f"Got new client from {addr}")
+                self.emit_log(logging.INFO, f"Got new client from {addr}")
+                #print( f"Got new client from {addr}")
                 self.clients[conn] = client = Client(conn, addr, self)
                 conn_thread = threading.Thread(target=client.handle_connection)
                 conn_thread.start()
             except:
-                self.log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
+                print(traceback.format_exc(limit=None, chain=True))
                 
-    def log(self, lvl, msg):
-        self.logger.log(lvl, msg)         
+    def emit_log(self, lvl, msg):
+        try:
+            self.logger.log(lvl, msg)
+        except:
+            print(traceback.format_exc(limit=None, chain=True))
             
     def console(self):
         while True:
@@ -92,23 +103,32 @@ class Vapor:
                     for c in self.clients.keys():
                         ostring+=f"{self.clients[c].ip}\n"
                     ostring+=f"{len(self.clients)} users connected!"
-                    self.log(logging.INFO, ostring)
+                    self.emit_log(logging.INFO, ostring)
                 elif line[0]=="stop":
                     raise ServerExit()
-            except (KeyboardInterrupt, ServerExit) as e:
-                self.server.log(logging.INFO, "The server was stopped from Console")
+            except (KeyboardInterrupt, ServerExit):
+                self.emit_log(logging.INFO, "The server was stopped from Console")
                 self.online=False
                 break
             except:
-                print(traceback.format_exc(limit=None, chain=True))
+                self.emit_log(traceback.format_exc(limit=None, chain=True))
+                pass
             
 class Client:
     def __init__(self, conn, addr, server):
-        self.conn=conn
-        self.addr=addr
-        self.ip=addr[0]
-        self.server=server
-        self.send([ControlCodes["MESSAGE"]] + list("Welcome to VAPOR\0"))
+        try:
+            self.conn=conn
+            self.addr=addr
+            self.ip=addr[0]
+            self.server=server
+            self.send([ControlCodes["MESSAGE"]] + self.parse_string("Welcome to VAPOR"))
+        except: self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
+        
+    def parse_string(self, str):
+        try:
+            return list(bytes(str+'\0', 'UTF-8'))
+        except:
+            self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
         
     def send(self, data):
         packet_length = len(data)
@@ -121,7 +141,7 @@ class Client:
                     break
                 i+=bytes_sent
                 packet_length-=bytes_sent
-        except: self.server.log(logging.ERROR, f"conn.send() error for Client at {self.ip}")
+        except: self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
           
     def handle_connection(self):
         while self.server.online:
@@ -144,27 +164,27 @@ class Client:
                 else:
                     raise ClientDisconnectErr(f"Invalid packet ID from {self.ip}. User disconnected.")
             except ClientDisconnectErr as e:
-                self.server.log(logging.INFO, str(e))
+                self.server.emit_log(logging.INFO, str(e))
                 del self.server.clients[self.conn]
                 self.conn.close()
                 break
             except:
-                self.server.log(logging.INFO, traceback.format_exc(limit=None, chain=True))
+                self.server.emit_log(logging.INFO, traceback.format_exc(limit=None, chain=True))
    
     def get_software_avail(self):
-        self.send([ControlCodes["MESSAGE"]] + list("Not yet implemented\0"))
+        self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
         
     def get_servers(self):
-        self.send([ControlCodes["MESSAGE"]] + list("Not yet implemented\0"))
+        self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
         
     def get_pkg_info(self):
-        self.send([ControlCodes["MESSAGE"]] + list("Not yet implemented\0"))
+        self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
         
     def check_for_updates(self):
-        self.send([ControlCodes["MESSAGE"]] + list("Not yet implemented\0"))
+        self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
         
     def update_packages(self):
-        self.send([ControlCodes["MESSAGE"]] + list("Not yet implemented\0"))
+        self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
                                                 
 
 if __name__ == '__main__':
