@@ -1,5 +1,6 @@
 import socket,threading,ctypes,hashlib,json,os,sys,time,math,traceback,logging,gzip
 from logging.handlers import TimedRotatingFileHandler
+from datetime import datetime
 
 PORT=51000
 BUFFER_SIZE=2048
@@ -12,6 +13,20 @@ ControlCodes={
     "CHECK_FOR_UPDATES":6,
     "UPDATE_SOFTWARE":7
 }
+
+def PaddedString(s, amt, char=" "):
+	if len(s)>=amt:
+		return s[:amt]
+	else:
+		return s.ljust(amt, char)
+
+def u16(*args):
+	o=[]
+	for arg in args:
+		if int(arg)<0: arg = abs(int(arg))
+		else: arg = int(arg)
+		o.extend(list(int(arg).to_bytes(2,'little')))
+	return o
 
 class ClientDisconnectErr(Exception):
     pass
@@ -43,6 +58,7 @@ class Vapor:
         try:
             # Init logging => To Console and to File
             self.logger = logging.getLogger("vapor.logger")
+            self.logger.setLevel(logging.DEBUG)
             formatter = logging.Formatter('%(levelname)s: %(asctime)s: %(message)s')
             console_handler = logging.StreamHandler()
             console_handler.setFormatter(formatter)
@@ -133,6 +149,7 @@ class Client:
     def send(self, data):
         packet_length = len(data)
         i = 0
+        self.server.emit_log(logging.DEBUG, f"sending packet: {data}")
         try:
             while packet_length:
                 bytes_sent = self.conn.send(bytes(data[i:min(packet_length, BUFFER_SIZE)]))
@@ -175,7 +192,25 @@ class Client:
         self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
         
     def get_servers(self):
-        self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
+        odata=[]
+        for obj in os.scandir("/home/servers/services/"):
+            if obj.is_dir():
+                srv_name=os.path.basename(obj.name)
+                print(obj.name)
+                srv_name_padded=PaddedString(srv_name, 16, chr(0))
+                odata+=self.parse_string(srv_name_padded)
+            with open(f"/home/servers/services/{obj.name}/service.conf") as f:
+                cfg=json.load(f)
+                port=cfg["port"]
+                odata+=u16(port)
+                temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                location = ("127.0.0.1", port)
+                if temp_socket.connect_ex(location)==0:
+                    odata.append(True)
+                else:
+                    odata.append(False)
+                temp_socket.close()
+        self.send([ControlCodes["FETCH_SERVER_LIST"]] + odata)
         
     def get_pkg_info(self):
         self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
