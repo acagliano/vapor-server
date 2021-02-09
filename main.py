@@ -2,16 +2,20 @@ import socket,threading,ctypes,hashlib,json,os,sys,time,math,traceback,logging,g
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime
 
+
 PORT=51000
 BUFFER_SIZE=2048
 
 ControlCodes={
-    "MESSAGE":2,
-    "FETCH_SOFTWARE_LIST":3,
-    "FETCH_SERVER_LIST":4,
-    "FETCH_SOFTWARE_INFO":5,
-    "CHECK_FOR_UPDATES":6,
-    "UPDATE_SOFTWARE":7
+    "FETCH_SOFTWARE_LIST":2,
+    "FETCH_SERVER_LIST":3,
+    "FETCH_SOFTWARE_INFO":4,
+    "CHECK_FOR_UPDATES":5,
+    "SRV_GET_PACKAGE":6,
+    "UPDATE_SOFTWARE":7,
+    "MESSAGE":0xf0,
+    "BRIDGE_ERROR":0xf1,
+    "PING":0xfc
 }
 
 def PaddedString(s, amt, char=" "):
@@ -84,7 +88,9 @@ class Vapor:
             self.main_thread.start()
             self.console()
         except:
-            print(traceback.format_exc(limit=None, chain=True))
+            self.emit_log(traceback.format_exc(limit=None, chain=True))
+            
+            
         
     def main(self):
         while self.online:
@@ -129,7 +135,52 @@ class Vapor:
             except:
                 self.emit_log(traceback.format_exc(limit=None, chain=True))
                 pass
-            
+          
+        
+    def parse_string(self, str):
+        try:
+            return list(bytes(str+'\0', 'UTF-8'))
+        except:
+            self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
+   
+    def get_software_avail(self):
+        return [ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented")
+        
+    def get_servers(self):
+        odata=[]
+        for obj in os.scandir("/home/servers/services/"):
+            try:
+                if obj.is_dir():
+                    srv_name=obj.name
+                    print(srv_name)
+                    srv_name_padded=PaddedString(srv_name, 16, chr(0))
+                    odata+=self.parse_string(srv_name_padded)
+                with open(f"/home/servers/services/{obj.name}/service.conf") as f:
+                    cfg=json.load(f)
+                    port=cfg["port"]
+                    odata+=u16(port)
+                    temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    location = ("127.0.0.1", port)
+                    if temp_socket.connect_ex(location)==0:
+                        odata.append(True)
+                    else:
+                        odata.append(False)
+                    temp_socket.close()
+            except:
+                self.server.emit_log(logging.INFO, traceback.format_exc(limit=None, chain=True))
+        return [ControlCodes["FETCH_SERVER_LIST"]] + odata
+        
+    def get_pkg_info(self):
+        return [ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented")
+        
+    def check_for_updates(self):
+        return [ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented")
+        
+    def update_packages(self):
+        return [ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented")
+        
+        
+        
 class Client:
     def __init__(self, conn, addr, server):
         try:
@@ -137,19 +188,14 @@ class Client:
             self.addr=addr
             self.ip=addr[0]
             self.server=server
-            self.send([ControlCodes["MESSAGE"]] + self.parse_string("Welcome to VAPOR"))
+            self.send([ControlCodes["MESSAGE"]] + self.server.parse_string("Welcome to VAPOR"))
         except: self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
-        
-    def parse_string(self, str):
-        try:
-            return list(bytes(str+'\0', 'UTF-8'))
-        except:
-            self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
+
         
     def send(self, data):
         packet_length = len(data)
         i = 0
-        self.server.emit_log(logging.DEBUG, f"sending packet: {data}")
+        self.server.emit_log(logging.DEBUG, f"sending {packet_length}-length packet: {data}")
         try:
             while packet_length:
                 bytes_sent = self.conn.send(bytes(data[i:min(packet_length, BUFFER_SIZE)]))
@@ -169,17 +215,22 @@ class Client:
                 if not len(data):
                     continue
                 elif data[0]==ControlCodes["FETCH_SOFTWARE_LIST"]:
-                    self.get_software_avail()
+                    odata=self.server.get_software_avail()
+                    self.send(odata)
                 elif data[0]==ControlCodes["FETCH_SERVER_LIST"]:
-                    self.get_servers()
+                    odata=self.server.get_servers()
+                    self.send(odata)
                 elif data[0]==ControlCodes["FETCH_SOFTWARE_INFO"]:
-                    self.get_pkg_info()
+                    odata=self.server.get_pkg_info()
+                    self.send(odata)
                 elif data[0]==ControlCodes["CHECK_FOR_UPDATES"]:
-                    self.check_for_updates()
+                    odata=self.server.check_for_updates()
+                    self.send(odata)
                 elif data[0]==ControlCodes["UPDATE_SOFTWARE"]:
-                    self.update_packages()
+                    odata=self.server.update_packages()
+                    self.send(odata)
                 else:
-                    raise ClientDisconnectErr(f"Invalid packet ID from {self.ip}. User disconnected.")
+                    self.server.emit_log("Bad Packet Id")
             except ClientDisconnectErr as e:
                 self.server.emit_log(logging.INFO, str(e))
                 del self.server.clients[self.conn]
@@ -188,38 +239,7 @@ class Client:
             except:
                 self.server.emit_log(logging.INFO, traceback.format_exc(limit=None, chain=True))
    
-    def get_software_avail(self):
-        self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
-        
-    def get_servers(self):
-        odata=[]
-        for obj in os.scandir("/home/servers/services/"):
-            if obj.is_dir():
-                srv_name=os.path.basename(obj.name)
-                print(obj.name)
-                srv_name_padded=PaddedString(srv_name, 16, chr(0))
-                odata+=self.parse_string(srv_name_padded)
-            with open(f"/home/servers/services/{obj.name}/service.conf") as f:
-                cfg=json.load(f)
-                port=cfg["port"]
-                odata+=u16(port)
-                temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                location = ("127.0.0.1", port)
-                if temp_socket.connect_ex(location)==0:
-                    odata.append(True)
-                else:
-                    odata.append(False)
-                temp_socket.close()
-        self.send([ControlCodes["FETCH_SERVER_LIST"]] + odata)
-        
-    def get_pkg_info(self):
-        self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
-        
-    def check_for_updates(self):
-        self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
-        
-    def update_packages(self):
-        self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
+
                                                 
 
 if __name__ == '__main__':
