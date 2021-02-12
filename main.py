@@ -1,21 +1,35 @@
-import socket,threading,ctypes,hashlib,json,os,sys,time,math,traceback,logging,gzip
+import socket,threading,ctypes,hashlib,json,os,sys,time,math,traceback,logging,gzip,zlib
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime
 
 
 PORT=51000
-BUFFER_SIZE=2048
+BUFFER_SIZE=1024
 
 ControlCodes={
-    "FETCH_SOFTWARE_LIST":2,
-    "FETCH_SERVER_LIST":3,
-    "FETCH_SOFTWARE_INFO":4,
-    "CHECK_FOR_UPDATES":5,
-    "SRV_GET_PACKAGE":6,
-    "UPDATE_SOFTWARE":7,
+    "FETCH_SOFTWARE_LIST":0x10,
+    "FETCH_SERVER_LIST":0x11,
+    "FETCH_SOFTWARE_INFO":0x12,
+    "SRVC_GET_REQ":0x20,
+    "SRVC_REQ_INFO":0x21,
+    "SRVC_GET_DLS":0x22,
+    "FILE_WRITE_START":0x40,
+    "FILE_WRITE_DATA":0x41,
+    "FILE_WRITE_END":0x42,
+    "FILE_GET_UP_TO_DATE":0x43,
+    "LIBRARY_CHECK_CRC":0x50,
+    "LIBRARY_UPDATE_ITEM":0x51,
+    "WELCOME":0xd0,
     "MESSAGE":0xf0,
     "BRIDGE_ERROR":0xf1,
+    "SERVER_ERROR":0xf2,
     "PING":0xfc
+}
+
+FileTypes={
+    "TI_PRGM_TYPE":0x05,
+    "TI_PPRGM_TYPE":0x06,
+    "TI_APPVAR_TYPE":0x15
 }
 
 def PaddedString(s, amt, char=" "):
@@ -24,6 +38,14 @@ def PaddedString(s, amt, char=" "):
 	else:
 		return s.ljust(amt, char)
 
+def u32(*args):
+    o=[]
+    for arg in args:
+        if int(arg)<0: arg = abs(int(arg))
+        else: arg = int(arg)
+        o.extend(list(int(arg).to_bytes(4,'little')))
+    return o
+
 def u16(*args):
 	o=[]
 	for arg in args:
@@ -31,6 +53,15 @@ def u16(*args):
 		else: arg = int(arg)
 		o.extend(list(int(arg).to_bytes(2,'little')))
 	return o
+ 
+def i24(*args):
+    o=[]
+    for arg in args:
+        if int(arg)>0:
+            o.extend(list(int(arg).to_bytes(3,'little')))
+        else:
+            o.extend(list((0-abs(int(arg))&0x7FFFFF).to_bytes(3,'little')))
+    return o
 
 class ClientDisconnectErr(Exception):
     pass
@@ -133,52 +164,9 @@ class Vapor:
                 self.online=False
                 break
             except:
-                self.emit_log(traceback.format_exc(limit=None, chain=True))
+                self.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
                 pass
-          
-        
-    def parse_string(self, str):
-        try:
-            return list(bytes(str+'\0', 'UTF-8'))
-        except:
-            self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
-   
-    def get_software_avail(self):
-        return [ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented")
-        
-    def get_servers(self):
-        odata=[]
-        for obj in os.scandir("/home/servers/services/"):
-            try:
-                if obj.is_dir():
-                    srv_name=obj.name
-                    print(srv_name)
-                    srv_name_padded=PaddedString(srv_name, 16, chr(0))
-                    odata+=self.parse_string(srv_name_padded)
-                with open(f"/home/servers/services/{obj.name}/service.conf") as f:
-                    cfg=json.load(f)
-                    port=cfg["port"]
-                    odata+=u16(port)
-                    temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    location = ("127.0.0.1", port)
-                    if temp_socket.connect_ex(location)==0:
-                        odata.append(True)
-                    else:
-                        odata.append(False)
-                    temp_socket.close()
-            except:
-                self.server.emit_log(logging.INFO, traceback.format_exc(limit=None, chain=True))
-        return [ControlCodes["FETCH_SERVER_LIST"]] + odata
-        
-    def get_pkg_info(self):
-        return [ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented")
-        
-    def check_for_updates(self):
-        return [ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented")
-        
-    def update_packages(self):
-        return [ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented")
-        
+            
         
         
 class Client:
@@ -188,14 +176,14 @@ class Client:
             self.addr=addr
             self.ip=addr[0]
             self.server=server
-            self.send([ControlCodes["MESSAGE"]] + self.server.parse_string("Welcome to VAPOR"))
+            self.send([ControlCodes["WELCOME"]])
         except: self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
 
         
     def send(self, data):
         packet_length = len(data)
         i = 0
-        self.server.emit_log(logging.DEBUG, f"sending {packet_length}-length packet: {data}")
+        self.server.emit_log(logging.DEBUG, f"sending {packet_length}-length packet: {data[:100]}")
         try:
             while packet_length:
                 bytes_sent = self.conn.send(bytes(data[i:min(packet_length, BUFFER_SIZE)]))
@@ -212,34 +200,133 @@ class Client:
                 data = list(self.conn.recv(BUFFER_SIZE))
                 if not data:
                     raise ClientDisconnectErr(f"{self.ip} disconnected!")
+                self.server.emit_log(logging.DEBUG, f"packet recieved: {data}")
                 if not len(data):
                     continue
                 elif data[0]==ControlCodes["FETCH_SOFTWARE_LIST"]:
-                    odata=self.server.get_software_avail()
-                    self.send(odata)
+                    self.get_software_avail()
                 elif data[0]==ControlCodes["FETCH_SERVER_LIST"]:
-                    odata=self.server.get_servers()
-                    self.send(odata)
+                    self.get_servers()
                 elif data[0]==ControlCodes["FETCH_SOFTWARE_INFO"]:
-                    odata=self.server.get_pkg_info()
-                    self.send(odata)
-                elif data[0]==ControlCodes["CHECK_FOR_UPDATES"]:
-                    odata=self.server.check_for_updates()
-                    self.send(odata)
+                    odata=self.get_pkg_info()
+                elif data[0]==ControlCodes["SRVC_GET_REQ"]:
+                    odata=self.get_required(data[1:])
+                elif data[0]==ControlCodes["SRVC_GET_DLS"]:
+                    odata=self.get_dls(data[1:])
                 elif data[0]==ControlCodes["UPDATE_SOFTWARE"]:
-                    odata=self.server.update_packages()
-                    self.send(odata)
+                    odata=self.update_packages()
                 else:
                     self.server.emit_log("Bad Packet Id")
             except ClientDisconnectErr as e:
                 self.server.emit_log(logging.INFO, str(e))
                 del self.server.clients[self.conn]
                 self.conn.close()
-                break
+                return
             except:
                 self.server.emit_log(logging.INFO, traceback.format_exc(limit=None, chain=True))
    
-
+    def parse_string(self, str):
+        try:
+            return list(bytes(str+'\0', 'UTF-8'))
+        except:
+            self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
+   
+    def get_software_avail(self):
+        self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
+        
+    def get_servers(self):
+        odata=[]
+        for obj in os.scandir("/home/servers/services/"):
+            try:
+                if obj.is_dir():
+                    srv_name=obj.name
+                    print(srv_name)
+                    srv_name_padded=PaddedString(srv_name, 8, chr(0))
+                    odata+=self.parse_string(srv_name_padded)
+                with open(f"/home/servers/services/{obj.name}/service.conf") as f:
+                    cfg=json.load(f)
+                    if "host" in cfg:
+                        host=cfg["host"]
+                        host_str=host
+                    else:
+                        host="127.0.0.1"
+                        host_str="local"
+                    host_str=PaddedString(host_str, 36, chr(0))
+                    odata+=self.parse_string(host_str)
+                    port=cfg["port"]
+                    odata+=u16(port)
+                    temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    location = (host, port)
+                    if temp_socket.connect_ex(location)==0:
+                        odata.append(True)
+                    else:
+                        odata.append(False)
+                    temp_socket.close()
+            except:
+                self.server.emit_log(logging.INFO, traceback.format_exc(limit=None, chain=True))
+        self.send([ControlCodes["FETCH_SERVER_LIST"]] + odata)
+        
+    def get_required(self, service):
+        try:
+            odata=[]
+            service=bytes(service[:-1]).decode("utf-8")
+            try:
+                with open(f"/home/servers/services/{service}/service.conf", "r") as f:
+                    cfg=json.load(f)
+                    package=cfg["pkg"]
+                    odata+=self.parse_string(PaddedString(package["client"], 8, chr(0)))
+                    odata+=[FileTypes["TI_PPRGM_TYPE"]]
+                    for dep in package["deps"]:
+                        odata+=self.parse_string(PaddedString(dep, 8, chr(0)))
+                        odata+=[FileTypes["TI_APPVAR_TYPE"]]
+                    self.send([ControlCodes["SRVC_REQ_INFO"]] + odata)
+            except IOError:
+                self.server.emit_log(logging.ERROR, "File IO Error")
+                self.send([ControlCodes["SERVER_ERROR"]] + self.parse_string("error loading service config"))
+        except:
+            self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
+            self.send([ControlCodes["SERVER_ERROR"]] + self.parse_string("error processing dependencies for {service}"))
+        
+    def get_dls(self, dl_data):
+        odata=[]
+        for i in range(0, len(dl_data), 14):
+            item = dl_data[i:i+14]
+            print(f"{item}")
+            file=str(bytes(item[0:8]), 'utf-8').split('\0', maxsplit=1)[0]
+            type=item[9]
+            device_crc = int.from_bytes(item[10:13], 'little')
+            subdir = "deps" if (type==FileTypes["TI_APPVAR_TYPE"]) else "prgm"
+            archive = True if (type==FileTypes["TI_APPVAR_TYPE"]) else False
+            archive_file = True if (type==FileTypes["TI_APPVAR_TYPE"]) else False
+            filename = f"/home/servers/software/{subdir}/{file}.bin"
+            self.server.emit_log(logging.INFO, f"opening file {filename}")
+            try:
+                with open(filename, "rb") as f:
+                    file_content = list(f.read())
+                    crc=zlib.crc32(bytes(file_content))
+                    print(device_crc)
+                    print(crc)
+                    if crc==device_crc:
+                        self.server.emit_log(logging.INFO, f"file crc match for {file}")
+                        continue
+                    self.send([ControlCodes["FILE_WRITE_START"], type])
+                    for r in range(0, len(file_content), BUFFER_SIZE-1):
+                        block=file_content[r:r+BUFFER_SIZE-1]
+                        self.send([ControlCodes["FILE_WRITE_DATA"]] + block)
+                    odata += self.parse_string(PaddedString(file, 8, chr(0)))
+                    odata += [type]
+                    odata += u32(crc) + [archive]
+                    self.send([ControlCodes["FILE_WRITE_END"]] + odata )
+            except:
+                self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
+                self.send([ControlCodes["SERVER_ERROR"]] + self.parse_string(f"error loading dependency {file}"))
+                
+            
+    def check_for_updates(self):
+        return [ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented")
+        
+    def update_packages(self):
+        return [ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented")
                                                 
 
 if __name__ == '__main__':
