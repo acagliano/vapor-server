@@ -12,10 +12,10 @@ ControlCodes={
     "FETCH_SOFTWARE_INFO":0x12,
     "SRVC_GET_REQ":0x20,
     "SRVC_REQ_INFO":0x21,
-    "SRVC_GET_DLS":0x22,
     "FILE_WRITE_START":0x40,
     "FILE_WRITE_DATA":0x41,
     "FILE_WRITE_END":0x42,
+    "FILE_WRITE_SKIP":0x43,
     "FILE_GET_UP_TO_DATE":0x43,
     "LIBRARY_CHECK_CRC":0x50,
     "LIBRARY_UPDATE_ITEM":0x51,
@@ -23,6 +23,7 @@ ControlCodes={
     "MESSAGE":0xf0,
     "BRIDGE_ERROR":0xf1,
     "SERVER_ERROR":0xf2,
+    "SERVER_SUCCESS":0xf3,
     "PING":0xfc
 }
 
@@ -53,6 +54,14 @@ def u16(*args):
 		else: arg = int(arg)
 		o.extend(list(int(arg).to_bytes(2,'little')))
 	return o
+
+def u24(*args):
+    o=[]
+    for arg in args:
+        if int(arg)<0: arg = abs(int(arg))
+        else: arg = int(arg)
+        o.extend(list(int(arg).to_bytes(3,'little')))
+    return o
  
 def i24(*args):
     o=[]
@@ -211,8 +220,8 @@ class Client:
                     odata=self.get_pkg_info()
                 elif data[0]==ControlCodes["SRVC_GET_REQ"]:
                     odata=self.get_required(data[1:])
-                elif data[0]==ControlCodes["SRVC_GET_DLS"]:
-                    odata=self.get_dls(data[1:])
+                elif data[0]==ControlCodes["FILE_WRITE_START"]:
+                    odata=self.get_file(data[1:])
                 elif data[0]==ControlCodes["UPDATE_SOFTWARE"]:
                     odata=self.update_packages()
                 else:
@@ -276,9 +285,11 @@ class Client:
                     package=cfg["pkg"]
                     odata+=self.parse_string(PaddedString(package["client"], 8, chr(0)))
                     odata+=[FileTypes["TI_PPRGM_TYPE"]]
+                    odata.extend([0,0,0,0,0])
                     for dep in package["deps"]:
                         odata+=self.parse_string(PaddedString(dep, 8, chr(0)))
                         odata+=[FileTypes["TI_APPVAR_TYPE"]]
+                        odata.extend([0,0,0,0,0])
                     self.send([ControlCodes["SRVC_REQ_INFO"]] + odata)
             except IOError:
                 self.server.emit_log(logging.ERROR, "File IO Error")
@@ -287,40 +298,41 @@ class Client:
             self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
             self.send([ControlCodes["SERVER_ERROR"]] + self.parse_string("error processing dependencies for {service}"))
         
-    def get_dls(self, dl_data):
-        odata=[]
-        for i in range(0, len(dl_data), 14):
-            item = dl_data[i:i+14]
-            print(f"{item}")
-            file=str(bytes(item[0:8]), 'utf-8').split('\0', maxsplit=1)[0]
-            type=item[9]
-            device_crc = int.from_bytes(item[10:13], 'little')
-            subdir = "deps" if (type==FileTypes["TI_APPVAR_TYPE"]) else "prgm"
-            archive = True if (type==FileTypes["TI_APPVAR_TYPE"]) else False
-            archive_file = True if (type==FileTypes["TI_APPVAR_TYPE"]) else False
-            filename = f"/home/servers/software/{subdir}/{file}.bin"
-            self.server.emit_log(logging.INFO, f"opening file {filename}")
-            try:
-                with open(filename, "rb") as f:
-                    file_content = list(f.read())
-                    crc=zlib.crc32(bytes(file_content))
-                    print(device_crc)
-                    print(crc)
-                    if crc==device_crc:
-                        self.server.emit_log(logging.INFO, f"file crc match for {file}")
-                        continue
-                    self.send([ControlCodes["FILE_WRITE_START"], type])
-                    for r in range(0, len(file_content), BUFFER_SIZE-1):
-                        block=file_content[r:r+BUFFER_SIZE-1]
-                        self.send([ControlCodes["FILE_WRITE_DATA"]] + block)
-                    odata += self.parse_string(PaddedString(file, 8, chr(0)))
-                    odata += [type]
-                    odata += u32(crc) + [archive]
-                    self.send([ControlCodes["FILE_WRITE_END"]] + odata )
-            except:
-                self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
-                self.send([ControlCodes["SERVER_ERROR"]] + self.parse_string(f"error loading dependency {file}"))
+    def get_file(self, item):
+        print(f"{item}")
+        file=str(bytes(item[:9]), 'utf-8').split('\0', maxsplit=1)[0]
+        type=item[9]
+        device_crc = int.from_bytes(item[10:], 'little')
+        subdir = "deps" if (type==FileTypes["TI_APPVAR_TYPE"]) else "prgm"
+        archive = True if (type==FileTypes["TI_APPVAR_TYPE"]) else False
+        archive_file = True if (type==FileTypes["TI_APPVAR_TYPE"]) else False
+        filename = f"/home/servers/software/{subdir}/{file}.bin"
+        self.server.emit_log(logging.INFO, f"opening file {filename}")
+        try:
+            with open(filename, "rb") as f:
+                file_content = list(f.read())
+                crc=zlib.crc32(bytes(file_content))
+                print(device_crc)
+                print(crc)
+                if crc==device_crc:
+                    self.send([ControlCodes["FILE_WRITE_SKIP"]])
+                    self.server.emit_log(logging.INFO, f"file crc match for {file}. skipping")
+                    return
+                self.send([ControlCodes["FILE_WRITE_START"]] + u24(len(file_content)))
+                for r in range(0, len(file_content), BUFFER_SIZE-1):
+                    block=file_content[r:r+BUFFER_SIZE-1]
+                    self.send([ControlCodes["FILE_WRITE_DATA"]] + block)
+                odata=[]
                 
+                odata += self.parse_string(PaddedString(file, 8, chr(0)))
+                odata += [type]
+                odata += u32(crc) + [archive]
+                self.send([ControlCodes["FILE_WRITE_END"]] + odata )
+        except IOError:
+            self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
+            self.send([ControlCodes["SERVER_ERROR"]] + self.parse_string(f"error loading dependency {file}"))
+        except:
+            self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
             
     def check_for_updates(self):
         return [ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented")
