@@ -192,7 +192,7 @@ class Client:
     def send(self, data):
         packet_length = len(data)
         i = 0
-        self.server.emit_log(logging.DEBUG, f"sending {packet_length}-length packet: {data[:100]}")
+        self.server.emit_log(logging.DEBUG, f"sending {packet_length}-length packet: {data[:5]}")
         try:
             while packet_length:
                 bytes_sent = self.conn.send(bytes(data[i:min(packet_length, BUFFER_SIZE)]))
@@ -283,13 +283,13 @@ class Client:
                 with open(f"/home/servers/services/{service}/service.conf", "r") as f:
                     cfg=json.load(f)
                     package=cfg["pkg"]
-                    odata+=self.parse_string(PaddedString(package["client"], 8, chr(0)))
-                    odata+=[FileTypes["TI_PPRGM_TYPE"]]
-                    odata.extend([0,0,0,0,0])
-                    for dep in package["deps"]:
-                        odata+=self.parse_string(PaddedString(dep, 8, chr(0)))
-                        odata+=[FileTypes["TI_APPVAR_TYPE"]]
-                        odata.extend([0,0,0,0,0])
+                    for dep in package:
+                        odata+=self.parse_string(PaddedString(dep["name"], 8, chr(0)))
+                        if dep["type"]=="appv" or dep["type"]=="libs":
+                            odata+=[FileTypes["TI_APPVAR_TYPE"]]
+                        else:
+                            odata+=[FileTypes["TI_PPRGM_TYPE"]]
+                        odata.extend([0,0,0,0,0,0,0,0,0])
                     self.send([ControlCodes["SRVC_REQ_INFO"]] + odata)
             except IOError:
                 self.server.emit_log(logging.ERROR, "File IO Error")
@@ -302,22 +302,42 @@ class Client:
         print(f"{item}")
         file=str(bytes(item[:9]), 'utf-8').split('\0', maxsplit=1)[0]
         type=item[9]
-        device_crc = int.from_bytes(item[10:], 'little')
-        subdir = "deps" if (type==FileTypes["TI_APPVAR_TYPE"]) else "prgm"
+        size = int.from_bytes(item[10:13], 'little')
+        device_year = int.from_bytes(item[13:16], 'little')
+        device_month = item[17]
+        device_day = item[18]
         archive = True if (type==FileTypes["TI_APPVAR_TYPE"]) else False
-        archive_file = True if (type==FileTypes["TI_APPVAR_TYPE"]) else False
-        filename = f"/home/servers/software/{subdir}/{file}.bin"
-        self.server.emit_log(logging.INFO, f"opening file {filename}")
         try:
+            if type==FileTypes["TI_APPVAR_TYPE"]:
+                if os.path.isfile(f"/home/servers/software/libs/{file}.bin"):
+                    filename=f"/home/servers/software/libs/{file}.bin"
+                elif os.path.isfile(f"/home/servers/software/appv/{file}.bin"):
+                    filename=f"/home/servers/software/appv/{file}.bin"
+                else:
+                    self.send([ControlCodes["FILE_WRITE_SKIP"], 5])
+                    return
+            elif os.path.isfile(f"/home/servers/software/prgm/{file}.bin"):
+                filename=f"/home/servers/software/prgm/{file}.bin"
+            else:
+                self.send([ControlCodes["FILE_WRITE_SKIP"], 5])
+                return
+            
+            self.server.emit_log(logging.INFO, f"opening file {filename}")
+            mtime = datetime.fromtimestamp(os.path.getmtime(filename))
+            m_year = int(mtime.strftime("%Y"))
+            m_month = int(mtime.strftime("%m"))
+            m_day = int(mtime.strftime("%d"))
+            
+            device_days = device_day + (30 * device_month) + (30 * 12 * device_year)
+            file_days = m_day + (30 * m_month) + (30 * 12 * m_year)
+            if(device_days >= file_days):
+                self.send([ControlCodes["FILE_WRITE_SKIP"], 1])
+                self.server.emit_log(logging.INFO, f"device timestamp matches {file}. skipping")
+                return
+            
+            print(mtime)
             with open(filename, "rb") as f:
                 file_content = list(f.read())
-                crc=zlib.crc32(bytes(file_content))
-                print(device_crc)
-                print(crc)
-                if crc==device_crc:
-                    self.send([ControlCodes["FILE_WRITE_SKIP"]])
-                    self.server.emit_log(logging.INFO, f"file crc match for {file}. skipping")
-                    return
                 self.send([ControlCodes["FILE_WRITE_START"]] + u24(len(file_content)))
                 for r in range(0, len(file_content), BUFFER_SIZE-1):
                     block=file_content[r:r+BUFFER_SIZE-1]
@@ -326,11 +346,10 @@ class Client:
                 
                 odata += self.parse_string(PaddedString(file, 8, chr(0)))
                 odata += [type]
-                odata += u32(crc) + [archive]
+                odata += u24(m_year) + [m_month, m_day, archive]
                 self.send([ControlCodes["FILE_WRITE_END"]] + odata )
         except IOError:
             self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
-            self.send([ControlCodes["SERVER_ERROR"]] + self.parse_string(f"error loading dependency {file}"))
         except:
             self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
             
