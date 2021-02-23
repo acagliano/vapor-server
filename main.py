@@ -11,7 +11,6 @@ ControlCodes={
     "FETCH_SERVER_LIST":0x11,
     "FETCH_SOFTWARE_INFO":0x12,
     "SRVC_GET_REQ":0x20,
-    "SRVC_REQ_INFO":0x21,
     "FILE_WRITE_START":0x40,
     "FILE_WRITE_DATA":0x41,
     "FILE_WRITE_END":0x42,
@@ -25,6 +24,14 @@ ControlCodes={
     "SERVER_ERROR":0xf2,
     "SERVER_SUCCESS":0xf3,
     "PING":0xfc
+}
+
+PacketSizes={
+    "FETCH_SOFTWARE_LIST":1,
+    "FETCH_SERVER_LIST":1,
+    "FETCH_SOFTWARE_INFO":None,
+    "SRVC_GET_REQ":9,
+    "FILE_WRITE_START":30
 }
 
 FileTypes={
@@ -133,6 +140,7 @@ class Vapor:
             
         
     def main(self):
+        self.emit_log(logging.INFO, f"server up and runnning on port {self.port}")
         while self.online:
             try:
                 self.sock.listen()
@@ -152,7 +160,7 @@ class Vapor:
             print(traceback.format_exc(limit=None, chain=True))
             
     def console(self):
-        while True:
+        while self.online:
             try:
                 line = input("")
                 print("[Console] "+line)
@@ -167,6 +175,8 @@ class Vapor:
                     ostring+=f"{len(self.clients)} users connected!"
                     self.emit_log(logging.INFO, ostring)
                 elif line[0]=="stop":
+                    self.emit_log(logging.INFO, "server shutting down in 10s")
+                    time.sleep(10)
                     raise ServerExit()
             except (KeyboardInterrupt, ServerExit):
                 self.emit_log(logging.INFO, "The server was stopped from Console")
@@ -192,7 +202,7 @@ class Client:
     def send(self, data):
         packet_length = len(data)
         i = 0
-        self.server.emit_log(logging.DEBUG, f"sending {packet_length}-length packet: {data[:5]}")
+        self.server.emit_log(logging.DEBUG, f"sending {packet_length}-length packet: {data[:50]}")
         try:
             while packet_length:
                 bytes_sent = self.conn.send(bytes(data[i:min(packet_length, BUFFER_SIZE)]))
@@ -202,6 +212,9 @@ class Client:
                 i+=bytes_sent
                 packet_length-=bytes_sent
         except: self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
+        
+    def invalid_packet(self):
+        self.server.emit_log(logging.INFO, f"invalid packet sent by {self.ip}")
           
     def handle_connection(self):
         while self.server.online:
@@ -222,10 +235,8 @@ class Client:
                     odata=self.get_required(data[1:])
                 elif data[0]==ControlCodes["FILE_WRITE_START"]:
                     odata=self.get_file(data[1:])
-                elif data[0]==ControlCodes["UPDATE_SOFTWARE"]:
-                    odata=self.update_packages()
                 else:
-                    self.server.emit_log("Bad Packet Id")
+                    self.server.emit_log(logging.INFO, f"unregistered packet type {data[0]}")
             except ClientDisconnectErr as e:
                 self.server.emit_log(logging.INFO, str(e))
                 del self.server.clients[self.conn]
@@ -249,7 +260,6 @@ class Client:
             try:
                 if obj.is_dir():
                     srv_name=obj.name
-                    print(srv_name)
                     srv_name_padded=PaddedString(srv_name, 8, chr(0))
                     odata+=self.parse_string(srv_name_padded)
                 with open(f"/home/servers/services/{obj.name}/service.conf") as f:
@@ -276,6 +286,9 @@ class Client:
         self.send([ControlCodes["FETCH_SERVER_LIST"]] + odata)
         
     def get_required(self, service):
+        if not len(service)<PacketSizes["SRVC_GET_REQ"]:
+            self.invalid_packet()
+            return
         try:
             odata=[]
             service=bytes(service[:-1]).decode("utf-8")
@@ -290,7 +303,7 @@ class Client:
                         else:
                             odata+=[FileTypes["TI_PPRGM_TYPE"]]
                         odata.extend([0,0,0,0,0,0,0,0,0])
-                    self.send([ControlCodes["SRVC_REQ_INFO"]] + odata)
+                    self.send([ControlCodes["SRVC_GET_REQ"]] + odata)
             except IOError:
                 self.server.emit_log(logging.ERROR, "File IO Error")
                 self.send([ControlCodes["SERVER_ERROR"]] + self.parse_string("error loading service config"))
@@ -299,14 +312,14 @@ class Client:
             self.send([ControlCodes["SERVER_ERROR"]] + self.parse_string("error processing dependencies for {service}"))
         
     def get_file(self, item):
+        if not len(item)==PacketSizes["FILE_WRITE_START"]:
+            self.invalid_packet()
+            return
         print(f"{item}")
         file=str(bytes(item[:9]), 'utf-8').split('\0', maxsplit=1)[0]
         type=item[9]
         size = int.from_bytes(item[10:13], 'little')
-        device_year = int.from_bytes(item[13:16], 'little')
-        device_month = item[17]
-        device_day = item[18]
-        archive = True if (type==FileTypes["TI_APPVAR_TYPE"]) else False
+        sha1 = int.from_bytes(item[13:], 'little')
         try:
             if type==FileTypes["TI_APPVAR_TYPE"]:
                 if os.path.isfile(f"/home/servers/software/libs/{file}.bin"):
@@ -323,21 +336,13 @@ class Client:
                 return
             
             self.server.emit_log(logging.INFO, f"opening file {filename}")
-            mtime = datetime.fromtimestamp(os.path.getmtime(filename))
-            m_year = int(mtime.strftime("%Y"))
-            m_month = int(mtime.strftime("%m"))
-            m_day = int(mtime.strftime("%d"))
             
-            device_days = device_day + (30 * device_month) + (30 * 12 * device_year)
-            file_days = m_day + (30 * m_month) + (30 * 12 * m_year)
-            if(device_days >= file_days):
-                self.send([ControlCodes["FILE_WRITE_SKIP"], 1])
-                self.server.emit_log(logging.INFO, f"device timestamp matches {file}. skipping")
-                return
-            
-            print(mtime)
             with open(filename, "rb") as f:
                 file_content = list(f.read())
+                sha1_hosted = hashlib.sha1(bytes(file_content)).digest()
+                if sha1_hosted == sha1:
+                    self.send([ControlCodes["FILE_WRITE_SKIP"], 1])
+                    return
                 self.send([ControlCodes["FILE_WRITE_START"]] + u24(len(file_content)))
                 for r in range(0, len(file_content), BUFFER_SIZE-1):
                     block=file_content[r:r+BUFFER_SIZE-1]
@@ -346,7 +351,7 @@ class Client:
                 
                 odata += self.parse_string(PaddedString(file, 8, chr(0)))
                 odata += [type]
-                odata += u24(m_year) + [m_month, m_day, archive]
+                odata += list(sha1_hosted)
                 self.send([ControlCodes["FILE_WRITE_END"]] + odata )
         except IOError:
             self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
