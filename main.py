@@ -1,4 +1,4 @@
-import socket,threading,ctypes,hashlib,json,os,sys,time,math,traceback,logging,gzip,zlib
+import socket,threading,ctypes,hashlib,json,os,sys,time,math,traceback,logging,gzip,zlib,sympy
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime
 
@@ -19,6 +19,7 @@ ControlCodes={
     "LIBRARY_CHECK_CRC":0x50,
     "LIBRARY_UPDATE_ITEM":0x51,
     "WELCOME":0xd0,
+    "NEGOTIATE_RSA":0xd1,
     "MESSAGE":0xf0,
     "BRIDGE_ERROR":0xf1,
     "SERVER_ERROR":0xf2,
@@ -31,7 +32,8 @@ PacketSizes={
     "FETCH_SERVER_LIST":1,
     "FETCH_SOFTWARE_INFO":None,
     "SRVC_GET_REQ":9,
-    "FILE_WRITE_START":30
+    "FILE_WRITE_START":30,
+    "NEGOTIATE_RSA":256
 }
 
 FileTypes={
@@ -78,6 +80,76 @@ def i24(*args):
         else:
             o.extend(list((0-abs(int(arg))&0x7FFFFF).to_bytes(3,'little')))
     return o
+    
+    
+class TI_RSA:
+    def gcd(self, a, b):
+        while b != 0:
+            a, b = b, a % b
+            return a
+        
+    def multiplicative_inverse(self, e, phi):
+        d = 0
+        x1 = 0
+        x2 = 1
+        y1 = 1
+        temp_phi = phi
+        while e > 0:
+            temp1 = temp_phi/e
+            temp2 = temp_phi - temp1 * e
+            temp_phi = e
+            e = temp2
+        
+            x = x2- temp1* x1
+            y = d - temp1 * y1
+        
+            x2 = x1
+            x1 = x
+            d = y1
+            y1 = y
+    
+        if temp_phi == 1:
+            return d + phi
+
+    def generate_keypair(self, p, q):
+        p = sympy.randprime(0, 2^64)
+        q = sympy.randprime(0, 2^64)
+
+        n = p * q   # P * Q
+        phi = (p-1) * (q-1)     # Totient
+
+        #Choose an integer e such that e and phi(n) are coprime
+        e = random.randrange(1, phi)
+
+        #Use Euclid's Algorithm to verify that e and phi(n) are comprime
+        g = gcd(e, phi)
+        while g != 1:
+            e = random.randrange(1, phi)
+            g = gcd(e, phi)
+
+        #Use Extended Euclid's Algorithm to generate the private key
+        d = multiplicative_inverse(e, phi)
+    
+        #Return public and private keypair
+        #Public key is (e, n) and private key is (d, n)
+        return ((e, n), (d, n))
+        
+    def decrypt(self, cipher, pubkey):
+        #Unpack the key into its components
+        key, n = pubkey
+        #Generate the plaintext based on the ciphertext and key using a^b mod m
+        plain = [(ord(char) ** key) % n for char in cipher]
+        #Return the array of bytes as a string
+        return plain
+        
+    def encrypt(pk, data, privkey):
+        #Unpack the key into it's components
+        key, n = privkey
+        #Convert each letter in the plaintext to numbers based on the character using a^b mod m
+        cipher = [(ord(char) ** key) % n for char in data]
+        #Return the array of bytes
+        return cipher
+        
 
 class ClientDisconnectErr(Exception):
     pass
@@ -191,6 +263,7 @@ class Vapor:
 class Client:
     def __init__(self, conn, addr, server):
         try:
+            self.rsa_enable = False
             self.conn=conn
             self.addr=addr
             self.ip=addr[0]
@@ -203,6 +276,8 @@ class Client:
         packet_length = len(data)
         i = 0
         self.server.emit_log(logging.DEBUG, f"sending {packet_length}-length packet: {data[:50]}")
+        if self.rsa_enable:
+            data = TI_RSA.encrypt(data, self.privkey)
         try:
             while packet_length:
                 bytes_sent = self.conn.send(bytes(data[i:min(packet_length, BUFFER_SIZE)]))
@@ -222,6 +297,10 @@ class Client:
                 data = list(self.conn.recv(BUFFER_SIZE))
                 if not data:
                     raise ClientDisconnectErr(f"{self.ip} disconnected!")
+                
+                if self.rsa_enable:
+                    data = TI_RSA.decrypt(data, self.rsa_pubkey)
+                
                 self.server.emit_log(logging.DEBUG, f"packet recieved: {data}")
                 if not len(data):
                     continue
@@ -235,6 +314,8 @@ class Client:
                     odata=self.get_required(data[1:])
                 elif data[0]==ControlCodes["FILE_WRITE_START"]:
                     odata=self.get_file(data[1:])
+                elif data[0]==ControlCodes["NEGOTIATE_RSA"]:
+                    self.negotiate_rsa(data[1:])
                 else:
                     self.server.emit_log(logging.INFO, f"unregistered packet type {data[0]}")
             except ClientDisconnectErr as e:
@@ -250,6 +331,15 @@ class Client:
             return list(bytes(str+'\0', 'UTF-8'))
         except:
             self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
+            
+            
+    def negotiate_rsa(self, key):
+        self.rsa_pubkey=(int.from_bytes(key[0:128]), int.from_bytes[128:])
+        pub, priv = TI_RSA.generate_keypair()
+        self.rsa_privkey=priv
+        self.send([ControlCodes["NEGOTIATE_RSA"]] + list(int.to_bytes(pub[0])) + list(int.to_bytes[pub[1]]))
+        self.rsa_enable = true
+        
    
     def get_software_avail(self):
         self.send([ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented"))
@@ -302,7 +392,7 @@ class Client:
                             odata+=[FileTypes["TI_APPVAR_TYPE"]]
                         else:
                             odata+=[FileTypes["TI_PPRGM_TYPE"]]
-                        odata.extend([0,0,0,0,0,0,0,0,0])
+                        odata.extend([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])
                     self.send([ControlCodes["SRVC_GET_REQ"]] + odata)
             except IOError:
                 self.server.emit_log(logging.ERROR, "File IO Error")
@@ -318,8 +408,7 @@ class Client:
         print(f"{item}")
         file=str(bytes(item[:9]), 'utf-8').split('\0', maxsplit=1)[0]
         type=item[9]
-        size = int.from_bytes(item[10:13], 'little')
-        sha1 = int.from_bytes(item[13:], 'little')
+        sha1 = list(item[10:])
         try:
             if type==FileTypes["TI_APPVAR_TYPE"]:
                 if os.path.isfile(f"/home/servers/software/libs/{file}.bin"):
@@ -339,14 +428,17 @@ class Client:
             
             with open(filename, "rb") as f:
                 file_content = list(f.read())
-                sha1_hosted = hashlib.sha1(bytes(file_content)).digest()
+                sha1_hosted = list(hashlib.sha1(bytes(file_content)).digest())
+                self.server.emit_log(logging.INFO, f"comparing SHA-1 digests...\nDevice: {sha1}\nHosted {sha1_hosted}")
                 if sha1_hosted == sha1:
+                    self.server.emit_log(logging.INFO, "Match!")
                     self.send([ControlCodes["FILE_WRITE_SKIP"], 1])
                     return
                 self.send([ControlCodes["FILE_WRITE_START"]] + u24(len(file_content)))
                 for r in range(0, len(file_content), BUFFER_SIZE-1):
                     block=file_content[r:r+BUFFER_SIZE-1]
                     self.send([ControlCodes["FILE_WRITE_DATA"]] + block)
+                    time.sleep(.25)
                 odata=[]
                 
                 odata += self.parse_string(PaddedString(file, 8, chr(0)))
