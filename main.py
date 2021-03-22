@@ -423,8 +423,8 @@ class Client:
         sha1 = list(item[10:])
         try:
             if type==FileTypes["TI_APPVAR_TYPE"]:
-                file_wext+=".8xv"
-            else: file_wext+=".8xp"
+                file_wext=file+".8xv"
+            else: file=file+".8xp"
             if os.path.isfile(f"/home/servers/software/usr/{file_wext}.bin"):
                 searchpath="/home/servers/software/usr/"
             elif os.path.isfile(f"/home/servers/software/libs/{file_wext}.bin"):
