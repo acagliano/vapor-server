@@ -446,7 +446,7 @@ class Client:
                     return
                 self.send([ControlCodes["FILE_WRITE_START"]] + u24(len(self.file_content)) + [self.file_type])
                 self.loc_in_data = 0
-                self.bytes_remain = len(file_content)
+                self.bytes_remain = len(self.file_content)
                 self.file_send_continue()
         except IOError:
             self.server.emit_log(logging.ERROR, f"{filepath} doesn't seem to exist.")
