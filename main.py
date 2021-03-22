@@ -44,7 +44,7 @@ FileTypes={
 }
 
 ErrorTypes={
-	"SERVER_IO_ERR":0x00,
+	"SERVER_IO_ERROR":0x00,
 	"INVALID_PACKET_TYPE":0xfe,
 	"SERVER_MISC_EXC":0xff
 }
@@ -321,13 +321,13 @@ class Client:
                     odata=self.get_required(data[1:])
                 elif data[0]==ControlCodes["FILE_WRITE_START"]:
                     odata=self.get_file(data[1:])
-		elif data[0]==ControlCodes["FILE_WRITE_NEXT"]:
-			odata=self.file_send_continue()
+                elif data[0]==ControlCodes["FILE_WRITE_NEXT"]:
+                    odata=self.file_send_continue()
                 elif data[0]==ControlCodes["NEGOTIATE_RSA"]:
                     self.negotiate_rsa(data[1:])
                 else:
                     self.server.emit_log(logging.INFO, f"unregistered packet type {data[0]}")
-			self.send([ControlCodes["SERVER_ERROR"]], ErrorTypes["INVALID_PACKET_TYPE"])
+                    self.send([ControlCodes["SERVER_ERROR"]], ErrorTypes["INVALID_PACKET_TYPE"])
             except ClientDisconnectErr as e:
                 self.server.emit_log(logging.INFO, str(e))
                 del self.server.clients[self.conn]
@@ -398,7 +398,7 @@ class Client:
                     package=cfg["pkg"]
                     for dep in package:
                         odata+=self.parse_string(PaddedString(dep["name"], 8, chr(0)))
-                        if dep["type"]=="appv" or dep["type"]=="libs":
+                        if dep["type"]=="appv":
                             odata+=[FileTypes["TI_APPVAR_TYPE"]]
                         else:
                             odata+=[FileTypes["TI_PPRGM_TYPE"]]
@@ -420,14 +420,14 @@ class Client:
         type=item[9]
         sha1 = list(item[10:])
         try:
-		if defaults:
-			searchpath="/home/servers/software/libs/"
-		else:
-			searchpath="/home/servers/software/usr/"
-		if type==FileTypes["TI_APPVAR_TYPE"]:
-			file_wext+=".8xv"
-		else: file_wext+=".8xp"
-		filepath=f"{searchpath}{file_wext}.bin"
+            if defaults:
+                searchpath="/home/servers/software/libs/"
+            else:
+                searchpath="/home/servers/software/usr/"
+            if type==FileTypes["TI_APPVAR_TYPE"]:
+                file_wext+=".8xv"
+            else: file_wext+=".8xp"
+            filepath=f"{searchpath}{file_wext}.bin"
             
             self.server.emit_log(logging.INFO, f"opening file {filename}")
             
@@ -440,18 +440,24 @@ class Client:
                     self.send([ControlCodes["FILE_WRITE_SKIP"], 1])
                     return
                 self.send([ControlCodes["FILE_WRITE_START"]] + u24(len(file_content)))
-		self.curr_file_content = file_content
-		self.sha1_curr_file = sha1_hosted
-		self.loc_in_data = 0
-		self.bytes_remain = len(file_content)
+                
+                self.curr_file_content = file_content
+                self.sha1_curr_file = sha1_hosted
+                self.loc_in_data = 0
+                self.bytes_remain = len(file_content)
+                
+        except IOError:
+            self.server.emit_log(logging.ERROR, f"{filepath} doesn't seem to exist.")
+            self.send(self.send([ControlCodes["SERVER_ERROR"]], ErrorTypes["SERVER_IO_ERROR"])
+            
 		
 	def file_send_continue(self)
 		if self.bytes_remain==0:
-			odata=[]
-                	odata += self.parse_string(PaddedString(file, 8, chr(0)))
-                	odata += [type]
-                	odata += list(self.sha1_curr_file)
-                	self.send([ControlCodes["FILE_WRITE_END"]] + odata )
+            odata=[]
+            odata += self.parse_string(PaddedString(file, 8, chr(0)))
+            odata += [type]
+            odata += list(self.sha1_curr_file)
+            self.send([ControlCodes["FILE_WRITE_END"]] + odata )
 		else:
 			bytes_to_send=min(self.bytes_remain, BUFFER_SIZE-1)]
 			self.send(self.curr_file_content[self.loc_in_data:bytes_to_send])
