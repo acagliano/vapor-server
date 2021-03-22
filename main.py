@@ -455,7 +455,7 @@ class Client:
             self.send(self.send([ControlCodes["SERVER_ERROR"]], ErrorTypes["SERVER_IO_ERROR"])
             
 		
-	def file_send_continue(self)
+	def file_send_continue(self):
 		if self.bytes_remain==0:
             odata=[]
             odata += self.parse_string(PaddedString(file, 8, chr(0)))
