@@ -328,7 +328,7 @@ class Client:
                     self.negotiate_rsa(data[1:])
                 else:
                     self.server.emit_log(logging.INFO, f"unregistered packet type {data[0]}")
-                    self.send([ControlCodes["SERVER_ERROR"]], ErrorTypes["INVALID_PACKET_TYPE"])
+                    self.send([ControlCodes["SERVER_ERROR"], ErrorTypes["INVALID_PACKET_TYPE"]])
             except ClientDisconnectErr as e:
                 self.server.emit_log(logging.INFO, str(e))
                 del self.server.clients[self.conn]
