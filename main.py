@@ -421,10 +421,6 @@ class Client:
         type=item[9]
         sha1 = list(item[10:])
         try:
-            if defaults:
-                
-            else:
-                
             if type==FileTypes["TI_APPVAR_TYPE"]:
                 file_wext+=".8xv"
             else: file_wext+=".8xp"
