@@ -44,7 +44,8 @@ FileTypes={
 }
 
 ErrorTypes={
-	"SERVER_IO_ERROR":0x00,
+    "SERVER_IO_ERROR":0x00,
+    "SERVER_FNF_ERROR":0x01,
 	"INVALID_PACKET_TYPE":0xfe,
 	"SERVER_MISC_EXC":0xff
 }
@@ -411,7 +412,7 @@ class Client:
             self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
             self.send([ControlCodes["SERVER_ERROR"]] + self.parse_string("error processing dependencies for {service}"))
         
-    def get_file(self, item, defaults=False):
+    def get_file(self, item):
         if not len(item)==PacketSizes["FILE_WRITE_START"]:
             self.invalid_packet()
             return
@@ -421,12 +422,19 @@ class Client:
         sha1 = list(item[10:])
         try:
             if defaults:
-                searchpath="/home/servers/software/libs/"
+                
             else:
-                searchpath="/home/servers/software/usr/"
+                
             if type==FileTypes["TI_APPVAR_TYPE"]:
                 file_wext+=".8xv"
             else: file_wext+=".8xp"
+            if os.path.isfile(f"/home/servers/software/usr/{file_wext}.bin"):
+                searchpath="/home/servers/software/usr/"
+            else if os.path.isfile(f"/home/servers/software/libs/{file_wext}.bin"):
+                searchpath="/home/servers/software/libs/"
+            else:
+                self.send(self.send([ControlCodes["SERVER_ERROR"]], ErrorTypes["SERVER_FNF_ERROR"])
+                return
             filepath=f"{searchpath}{file_wext}.bin"
             
             self.server.emit_log(logging.INFO, f"opening file {filename}")
@@ -439,7 +447,7 @@ class Client:
                     self.server.emit_log(logging.INFO, "Match!")
                     self.send([ControlCodes["FILE_WRITE_SKIP"], 1])
                     return
-                self.send([ControlCodes["FILE_WRITE_START"]] + u24(len(file_content)))
+                self.send([ControlCodes["FILE_WRITE_START"]] + u24(len(file_content)) + [type])
                 
                 self.curr_file_content = file_content
                 self.sha1_curr_file = sha1_hosted
