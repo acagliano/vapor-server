@@ -422,7 +422,7 @@ class Client:
         self.file_type=item[9]
         file_sha1 = list(item[10:])
         try:
-            if type==FileTypes["TI_APPVAR_TYPE"]:
+            if self.file_type==FileTypes["TI_APPVAR_TYPE"]:
                 file_wext = f"{self.file_name}.8xv"
             else: file_wext = f"{self.file_name}.8xp"
             self.server.emit_log(logging.INFO, f"locating binary for {file_wext}.bin")
