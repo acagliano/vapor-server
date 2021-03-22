@@ -429,7 +429,7 @@ class Client:
             elif os.path.isfile(f"/home/servers/software/libs/{file_wext}.bin"):
                 searchpath="/home/servers/software/libs/"
             else:
-                self.send(self.send([ControlCodes["SERVER_ERROR"]], ErrorTypes["SERVER_FNF_ERROR"])
+                self.send(self.send([ControlCodes["SERVER_ERROR"], ErrorTypes["SERVER_FNF_ERROR"]])
                 return
             filepath=f"{searchpath}{file_wext}.bin"
             
