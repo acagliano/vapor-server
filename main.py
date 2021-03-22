@@ -454,19 +454,19 @@ class Client:
             self.server.emit_log(logging.ERROR, f"{filepath} doesn't seem to exist.")
             self.send([ControlCodes["SERVER_ERROR"], ErrorTypes["SERVER_IO_ERROR"]])
             
-		
-	def file_send_continue(self):
-		if self.bytes_remain==0:
+            
+    def file_send_continue(self):
+        if self.bytes_remain==0:
             odata=[]
             odata += self.parse_string(PaddedString(file, 8, chr(0)))
             odata += [type]
             odata += list(self.sha1_curr_file)
             self.send([ControlCodes["FILE_WRITE_END"]] + odata )
-		else:
-			bytes_to_send=min(self.bytes_remain, BUFFER_SIZE-1)]
-			self.send(self.curr_file_content[self.loc_in_data:bytes_to_send])
-			self.loc_in_data+=bytes_to_send
-			self.bytes_remain-=bytes_to_send
+        else:
+            bytes_to_send=min(self.bytes_remain, BUFFER_SIZE-1)]
+            self.send(self.curr_file_content[self.loc_in_data:bytes_to_send])
+            self.loc_in_data+=bytes_to_send
+            self.bytes_remain-=bytes_to_send
             
     def check_for_updates(self):
         return [ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented")
