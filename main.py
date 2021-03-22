@@ -438,7 +438,7 @@ class Client:
             
             with open(filepath, "rb") as f:
                 self.file_content = list(f.read())
-                self.sha1_hosted = list(hashlib.sha1(bytes(file_content)).digest())
+                self.sha1_hosted = list(hashlib.sha1(bytes(self.file_content)).digest())
                 self.server.emit_log(logging.INFO, f"comparing SHA-1 digests...\nDevice: {file_sha1}\nHosted {self.sha1_hosted}")
                 if self.sha1_hosted == file_sha1:
                     self.server.emit_log(logging.INFO, "Match!")
