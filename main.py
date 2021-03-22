@@ -142,7 +142,7 @@ class TI_RSA:
         #Return the array of bytes as a string
         return plain
         
-    def encrypt(pk, data, privkey):
+    def encrypt(self, pk, data, privkey):
         #Unpack the key into it's components
         key, n = privkey
         #Convert each letter in the plaintext to numbers based on the character using a^b mod m
