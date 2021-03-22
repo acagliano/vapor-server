@@ -439,7 +439,7 @@ class Client:
             with open(filepath, "rb") as f:
                 file_content = list(f.read())
                 sha1_hosted = list(hashlib.sha1(bytes(file_content)).digest())
-                self.server.emit_log(logging.INFO, f"comparing SHA-1 digests...\nDevice: {sha1}\nHosted {sha1_hosted}")
+                self.server.emit_log(logging.INFO, f"comparing SHA-1 digests...\nDevice: {file_sha1}\nHosted {sha1_hosted}")
                 if sha1_hosted == file_sha1:
                     self.server.emit_log(logging.INFO, "Match!")
                     self.send([ControlCodes["FILE_WRITE_SKIP"], 1])
