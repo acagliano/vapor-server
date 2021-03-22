@@ -426,7 +426,7 @@ class Client:
             else: file_wext+=".8xp"
             if os.path.isfile(f"/home/servers/software/usr/{file_wext}.bin"):
                 searchpath="/home/servers/software/usr/"
-            else if os.path.isfile(f"/home/servers/software/libs/{file_wext}.bin"):
+            elif os.path.isfile(f"/home/servers/software/libs/{file_wext}.bin"):
                 searchpath="/home/servers/software/libs/"
             else:
                 self.send(self.send([ControlCodes["SERVER_ERROR"]], ErrorTypes["SERVER_FNF_ERROR"])
