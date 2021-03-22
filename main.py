@@ -461,10 +461,10 @@ class Client:
             odata += list(self.sha1_hosted)
             self.send([ControlCodes["FILE_WRITE_END"]] + odata )
         else:
-            bytes_to_send=min(self.bytes_remain, BUFFER_SIZE-1)
-            print(bytes_to_send)
+            bytes_to_send = min(self.bytes_remain, BUFFER_SIZE-1)
+            send_this = list(self.file_content[self.loc_in_data:bytes_to_send])
             print(self.bytes_remain)
-            self.send([ControlCodes["FILE_WRITE_DATA"], self.file_content[self.loc_in_data:bytes_to_send]])
+            self.send([ControlCodes["FILE_WRITE_DATA"]] + send_this)
             self.loc_in_data+=bytes_to_send
             self.bytes_remain-=bytes_to_send
             
