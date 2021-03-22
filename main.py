@@ -452,7 +452,7 @@ class Client:
                 
         except IOError:
             self.server.emit_log(logging.ERROR, f"{filepath} doesn't seem to exist.")
-            self.send(self.send([ControlCodes["SERVER_ERROR"]], ErrorTypes["SERVER_IO_ERROR"])
+            self.send([ControlCodes["SERVER_ERROR"], ErrorTypes["SERVER_IO_ERROR"]])
             
 		
 	def file_send_continue(self):
