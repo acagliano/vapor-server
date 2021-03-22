@@ -15,6 +15,7 @@ ControlCodes={
     "FILE_WRITE_DATA":0x41,
     "FILE_WRITE_END":0x42,
     "FILE_WRITE_SKIP":0x43,
+    "FILE_WRITE_NEXT":0x44,
     "FILE_GET_UP_TO_DATE":0x43,
     "LIBRARY_CHECK_CRC":0x50,
     "LIBRARY_UPDATE_ITEM":0x51,
@@ -40,6 +41,12 @@ FileTypes={
     "TI_PRGM_TYPE":0x05,
     "TI_PPRGM_TYPE":0x06,
     "TI_APPVAR_TYPE":0x15
+}
+
+ErrorTypes={
+	"SERVER_IO_ERR":0x00,
+	"INVALID_PACKET_TYPE":0xfe,
+	"SERVER_MISC_EXC":0xff
 }
 
 def PaddedString(s, amt, char=" "):
@@ -314,10 +321,13 @@ class Client:
                     odata=self.get_required(data[1:])
                 elif data[0]==ControlCodes["FILE_WRITE_START"]:
                     odata=self.get_file(data[1:])
+		elif data[0]==ControlCodes["FILE_WRITE_NEXT"]:
+			odata=self.file_send_continue()
                 elif data[0]==ControlCodes["NEGOTIATE_RSA"]:
                     self.negotiate_rsa(data[1:])
                 else:
                     self.server.emit_log(logging.INFO, f"unregistered packet type {data[0]}")
+			self.send([ControlCodes["SERVER_ERROR"]], ErrorTypes["INVALID_PACKET_TYPE"])
             except ClientDisconnectErr as e:
                 self.server.emit_log(logging.INFO, str(e))
                 del self.server.clients[self.conn]
@@ -401,7 +411,7 @@ class Client:
             self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
             self.send([ControlCodes["SERVER_ERROR"]] + self.parse_string("error processing dependencies for {service}"))
         
-    def get_file(self, item):
+    def get_file(self, item, defaults=False):
         if not len(item)==PacketSizes["FILE_WRITE_START"]:
             self.invalid_packet()
             return
@@ -410,19 +420,14 @@ class Client:
         type=item[9]
         sha1 = list(item[10:])
         try:
-            if type==FileTypes["TI_APPVAR_TYPE"]:
-                if os.path.isfile(f"/home/servers/software/libs/{file}.bin"):
-                    filename=f"/home/servers/software/libs/{file}.bin"
-                elif os.path.isfile(f"/home/servers/software/appv/{file}.bin"):
-                    filename=f"/home/servers/software/appv/{file}.bin"
-                else:
-                    self.send([ControlCodes["FILE_WRITE_SKIP"], 5])
-                    return
-            elif os.path.isfile(f"/home/servers/software/prgm/{file}.bin"):
-                filename=f"/home/servers/software/prgm/{file}.bin"
-            else:
-                self.send([ControlCodes["FILE_WRITE_SKIP"], 5])
-                return
+		if defaults:
+			searchpath="/home/servers/software/libs/"
+		else:
+			searchpath="/home/servers/software/usr/"
+		if type==FileTypes["TI_APPVAR_TYPE"]:
+			file_wext+=".8xv"
+		else: file_wext+=".8xp"
+		filepath=f"{searchpath}{file_wext}.bin"
             
             self.server.emit_log(logging.INFO, f"opening file {filename}")
             
@@ -435,20 +440,23 @@ class Client:
                     self.send([ControlCodes["FILE_WRITE_SKIP"], 1])
                     return
                 self.send([ControlCodes["FILE_WRITE_START"]] + u24(len(file_content)))
-                for r in range(0, len(file_content), BUFFER_SIZE-1):
-                    block=file_content[r:r+BUFFER_SIZE-1]
-                    self.send([ControlCodes["FILE_WRITE_DATA"]] + block)
-                    time.sleep(.25)
-                odata=[]
-                
-                odata += self.parse_string(PaddedString(file, 8, chr(0)))
-                odata += [type]
-                odata += list(sha1_hosted)
-                self.send([ControlCodes["FILE_WRITE_END"]] + odata )
-        except IOError:
-            self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
-        except:
-            self.server.emit_log(logging.ERROR, traceback.format_exc(limit=None, chain=True))
+		self.curr_file_content = file_content
+		self.sha1_curr_file = sha1_hosted
+		self.loc_in_data = 0
+		self.bytes_remain = len(file_content)
+		
+	def file_send_continue(self)
+		if self.bytes_remain==0:
+			odata=[]
+                	odata += self.parse_string(PaddedString(file, 8, chr(0)))
+                	odata += [type]
+                	odata += list(self.sha1_curr_file)
+                	self.send([ControlCodes["FILE_WRITE_END"]] + odata )
+		else:
+			bytes_to_send=min(self.bytes_remain, BUFFER_SIZE-1)]
+			self.send(self.curr_file_content[self.loc_in_data:bytes_to_send])
+			self.loc_in_data+=bytes_to_send
+			self.bytes_remain-=bytes_to_send
             
     def check_for_updates(self):
         return [ControlCodes["MESSAGE"]] + self.parse_string("Not yet implemented")
