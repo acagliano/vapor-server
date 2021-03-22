@@ -434,9 +434,9 @@ class Client:
                 return
             filepath=f"{searchpath}{file_wext}.bin"
             
-            self.server.emit_log(logging.INFO, f"opening file {filename}")
+            self.server.emit_log(logging.INFO, f"opening file {filepath}")
             
-            with open(filename, "rb") as f:
+            with open(filepath, "rb") as f:
                 file_content = list(f.read())
                 sha1_hosted = list(hashlib.sha1(bytes(file_content)).digest())
                 self.server.emit_log(logging.INFO, f"comparing SHA-1 digests...\nDevice: {sha1}\nHosted {sha1_hosted}")
@@ -446,6 +446,7 @@ class Client:
                     return
                 self.send([ControlCodes["FILE_WRITE_START"]] + u24(len(file_content)) + [type])
                 
+                self.filename=file
                 self.curr_file_content = file_content
                 self.sha1_curr_file = sha1_hosted
                 self.loc_in_data = 0
@@ -459,7 +460,7 @@ class Client:
     def file_send_continue(self):
         if self.bytes_remain==0:
             odata=[]
-            odata += self.parse_string(PaddedString(file, 8, chr(0)))
+            odata += self.parse_string(PaddedString(self.filename, 8, chr(0)))
             odata += [type]
             odata += list(self.sha1_curr_file)
             self.send([ControlCodes["FILE_WRITE_END"]] + odata )
