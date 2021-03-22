@@ -462,7 +462,7 @@ class Client:
             self.send([ControlCodes["FILE_WRITE_END"]] + odata )
         else:
             bytes_to_send=min(self.bytes_remain, BUFFER_SIZE-1)
-            self.send([ControlCodes["FILE_WRITE_DATA"]] + self.curr_file_content[self.loc_in_data:bytes_to_send])
+            self.send([ControlCodes["FILE_WRITE_DATA"]] + self.file_content[self.loc_in_data:bytes_to_send])
             self.loc_in_data+=bytes_to_send
             self.bytes_remain-=bytes_to_send
             
