@@ -329,7 +329,7 @@ class Client:
                 else:
                     self.server.emit_log(logging.INFO, f"unregistered packet type {data[0]}")
                     self.send([ControlCodes["SERVER_ERROR"], ErrorTypes["INVALID_PACKET_TYPE"]])
-                    raise ClientDisconnectErr(f"Disconnecting IP {self.ip}. Potential bad actor!")
+                    raise ClientDisconnectErr(f"Invalid request. Potential bad actor at {self.ip}")
             except ClientDisconnectErr as e:
                 self.server.emit_log(logging.INFO, str(e))
                 del self.server.clients[self.conn]
