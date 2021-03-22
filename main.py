@@ -418,13 +418,13 @@ class Client:
             self.invalid_packet()
             return
         print(f"{item}")
-        file_name=str(bytes(item[:9]), 'utf-8').split('\0', maxsplit=1)[0]
-        file_type=item[9]
+        self.file_name=str(bytes(item[:9]), 'utf-8').split('\0', maxsplit=1)[0]
+        self.file_type=item[9]
         file_sha1 = list(item[10:])
         try:
             if type==FileTypes["TI_APPVAR_TYPE"]:
-                file_wext = file_name+".8xv"
-            else: file_wext = file_name+".8xp"
+                file_wext = f"{self.file_name}.8xv"
+            else: file_wext = f"{self.file_name}.8xp"
             if os.path.isfile(f"/home/servers/software/usr/{file_wext}.bin"):
                 searchpath="/home/servers/software/usr/"
             elif os.path.isfile(f"/home/servers/software/libs/{file_wext}.bin"):
@@ -437,18 +437,14 @@ class Client:
             self.server.emit_log(logging.INFO, f"opening file {filepath}")
             
             with open(filepath, "rb") as f:
-                file_content = list(f.read())
-                sha1_hosted = list(hashlib.sha1(bytes(file_content)).digest())
-                self.server.emit_log(logging.INFO, f"comparing SHA-1 digests...\nDevice: {file_sha1}\nHosted {sha1_hosted}")
-                if sha1_hosted == file_sha1:
+                self.file_content = list(f.read())
+                self.sha1_hosted = list(hashlib.sha1(bytes(file_content)).digest())
+                self.server.emit_log(logging.INFO, f"comparing SHA-1 digests...\nDevice: {file_sha1}\nHosted {self.sha1_hosted}")
+                if self.sha1_hosted == file_sha1:
                     self.server.emit_log(logging.INFO, "Match!")
                     self.send([ControlCodes["FILE_WRITE_SKIP"], 1])
                     return
-                self.send([ControlCodes["FILE_WRITE_START"]] + u24(len(file_content)) + [file_type])
-                self.filetype=file_type
-                self.filename=file_name
-                self.curr_file_content = file_content
-                self.sha1_curr_file = sha1_hosted
+                self.send([ControlCodes["FILE_WRITE_START"]] + u24(len(self.file_content)) + [self.file_type])
                 self.loc_in_data = 0
                 self.bytes_remain = len(file_content)
                 self.file_send_continue()
@@ -460,9 +456,9 @@ class Client:
     def file_send_continue(self):
         if self.bytes_remain==0:
             odata=[]
-            odata += self.parse_string(PaddedString(self.filename, 8, chr(0)))
-            odata += [self.filetype]
-            odata += list(self.sha1_curr_file)
+            odata += self.parse_string(PaddedString(self.file_name, 8, chr(0)))
+            odata += [self.file_type]
+            odata += list(self.sha1_hosted)
             self.send([ControlCodes["FILE_WRITE_END"]] + odata )
         else:
             bytes_to_send=min(self.bytes_remain, BUFFER_SIZE-1)
