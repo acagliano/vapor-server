@@ -425,6 +425,7 @@ class Client:
             if type==FileTypes["TI_APPVAR_TYPE"]:
                 file_wext = f"{self.file_name}.8xv"
             else: file_wext = f"{self.file_name}.8xp"
+            self.server.emit_log(logging.INFO, f"locating binary for {file_wext}.bin")
             if os.path.isfile(f"/home/servers/software/usr/{file_wext}.bin"):
                 searchpath="/home/servers/software/usr/"
             elif os.path.isfile(f"/home/servers/software/libs/{file_wext}.bin"):
