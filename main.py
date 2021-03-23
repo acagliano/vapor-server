@@ -94,7 +94,7 @@ class TI_RSA:
     def gcd(self, a, b):
         while b != 0:
             a, b = b, a % b
-            return a
+        return a
         
     def multiplicative_inverse(self, e, phi):
         d = 0
