@@ -11,6 +11,8 @@ ControlCodes={
     "FETCH_SERVER_LIST":0x11,
     "FETCH_SOFTWARE_INFO":0x12,
     "SRVC_GET_REQ":0x20,
+    "SRVC_RUN_FILE":0x21,
+    "PRGM_SELF_UPDATE":0x30,
     "FILE_WRITE_START":0x40,
     "FILE_WRITE_DATA":0x41,
     "FILE_WRITE_END":0x42,
@@ -33,6 +35,7 @@ PacketSizes={
     "FETCH_SERVER_LIST":1,
     "FETCH_SOFTWARE_INFO":None,
     "SRVC_GET_REQ":9,
+    "PRGM_SELF_UPDATE":4,
     "FILE_WRITE_START":30,
     "NEGOTIATE_RSA":256
 }
@@ -320,6 +323,8 @@ class Client:
                     odata=self.get_pkg_info()
                 elif data[0]==ControlCodes["SRVC_GET_REQ"]:
                     odata=self.get_required(data[1:])
+                elif data[0]==ControlCodes["PRGM_SELF_UPDATE"]:
+                    self.client_autoupd(data[1:])
                 elif data[0]==ControlCodes["FILE_WRITE_START"]:
                     odata=self.get_file(data[1:])
                 elif data[0]==ControlCodes["FILE_WRITE_NEXT"]:
@@ -337,6 +342,57 @@ class Client:
                 return
             except:
                 self.server.emit_log(logging.INFO, traceback.format_exc(limit=None, chain=True))
+   
+    def client_autoupd(self, flags):
+        upd_prgm = flags[0]
+        upd_canonical = flags[1]
+        upd_nan_canonical=flags[2]
+        sha1_dummy = [0 for i in range(1, 20)]
+        canonical_libs=["LIBLOAD", "GRAPHX", "FILEIOC", "KEYPADC", "FONTLIBC", "USBDRVCE", "SRLDRVCE", "FATDRVCE"]
+        send_as_canonical=[]
+        send_as_noncanonical=[]
+        if upd_canonical or upd_non_canonical:
+            for obj in os.scandir("/home/servers/software/libs/"):
+                try:
+                    if obj.is_file():
+                        fileparts=obj.name.split(os.extsep):
+                        if fileparts[len(fileparts)]=="bin":
+                            if fileparts[0] in canonical_libs:
+                                send_as_canonical.append(fileparts[0])
+                            else:
+                                send_as_noncanonical.append(fileparts[0])
+        appendme=[]
+        odata=[]
+        if upd_prgm:
+            appendme+=self.parse_string(PaddedString("VAPOR", 8, chr(0)))
+            appendme.extend([FileTypes["TI_PPRGM_TYPE"]])
+            appendme.extend([0, 0, 0])
+            appendme.extend(sha1_dummy)
+            appendme.extend([0])
+        odata+=appendme
+        appendme=[]
+        if upd_canonical:
+            for lib in send_as_canonical:
+                appendme+=self.parse_string(PaddedString(lib, 8, chr(0)))
+                appendme.extend([FileTypes["TI_APPVAR_TYPE"]])
+                appendme.extend([0, 0, 0])
+                appendme.extend(sha1_dummy)
+                appendme.extend([0])
+            odata+=appendme
+            appendme=[]
+        if upd_non_canonical:
+            for lib in send_as_noncanonical:
+                appendme+=self.parse_string(PaddedString(lib, 8, chr(0)))
+                appendme.extend([FileTypes["TI_APPVAR_TYPE"]])
+                appendme.extend([0, 0, 0])
+                appendme.extend(sha1_dummy)
+                appendme.extend([0])
+            odata+=appendme
+        self.send([ControlCodes["SRVC_GET_REQ"]] + odata)
+
+                
+        
+        odata+=self.parse_string(PaddedString(dep["name"], 8, chr(0)))
    
     def parse_string(self, str):
         try:
