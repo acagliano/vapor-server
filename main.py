@@ -392,9 +392,6 @@ class Client:
             odata+=appendme
         self.send([ControlCodes["SRVC_GET_REQ"]] + odata)
 
-                
-        
-        odata+=self.parse_string(PaddedString(dep["name"], 8, chr(0)))
    
     def parse_string(self, str):
         try:
