@@ -351,6 +351,8 @@ class Client:
         canonical_libs=["LIBLOAD", "GRAPHX", "FILEIOC", "KEYPADC", "FONTLIBC", "USBDRVCE", "SRLDRVCE", "FATDRVCE"]
         send_as_canonical=[]
         send_as_noncanonical=[]
+        appendme=[]
+        odata=[]
         if upd_canonical or upd_non_canonical:
             for obj in os.scandir("/home/servers/software/libs/"):
                 try:
@@ -361,8 +363,8 @@ class Client:
                                 send_as_canonical.append(fileparts[0])
                             else:
                                 send_as_noncanonical.append(fileparts[0])
-        appendme=[]
-        odata=[]
+                except:
+                    continue
         if upd_prgm:
             appendme+=self.parse_string(PaddedString("VAPOR", 8, chr(0)))
             appendme.extend([FileTypes["TI_PPRGM_TYPE"]])
