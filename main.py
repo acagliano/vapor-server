@@ -355,7 +355,7 @@ class Client:
             for obj in os.scandir("/home/servers/software/libs/"):
                 try:
                     if obj.is_file():
-                        fileparts=obj.name.split(os.extsep):
+                        fileparts=obj.name.split(os.extsep)
                         if fileparts[len(fileparts)]=="bin":
                             if fileparts[0] in canonical_libs:
                                 send_as_canonical.append(fileparts[0])
