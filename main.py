@@ -371,8 +371,8 @@ class Client:
             appendme.extend([0, 0, 0])
             appendme.extend(sha1_dummy)
             appendme.extend([0])
-        odata+=appendme
-        appendme=[]
+            odata+=appendme
+            appendme=[]
         if upd_canonical:
             for lib in send_as_canonical:
                 appendme+=self.parse_string(PaddedString(lib, 8, chr(0)))
