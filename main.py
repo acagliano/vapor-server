@@ -390,7 +390,8 @@ class Client:
                 appendme.extend(sha1_dummy)
                 appendme.extend([0])
             odata+=appendme
-        self.send([ControlCodes["SRVC_GET_REQ"]] + odata)
+        if(len(odata)):
+            self.send([ControlCodes["SRVC_GET_REQ"]] + odata)
 
    
     def parse_string(self, str):
