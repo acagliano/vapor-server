@@ -347,7 +347,7 @@ class Client:
         upd_prgm = flags[0]
         upd_canonical = flags[1]
         upd_non_canonical=flags[2]
-        sha1_dummy = [0 for i in range(1, 20)]
+        sha1_dummy = [0 for i in range(0, 20)]
         canonical_libs=["LIBLOAD", "GRAPHX", "FILEIOC", "KEYPADC", "FONTLIBC", "USBDRVCE", "SRLDRVCE", "FATDRVCE"]
         send_as_canonical=[]
         send_as_noncanonical=[]
