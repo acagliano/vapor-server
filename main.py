@@ -366,6 +366,7 @@ class Client:
                 except:
                     continue
         if upd_prgm:
+            self.server.emit_log(logging.INFO, "Updating main program")
             appendme+=self.parse_string(PaddedString("VAPOR", 8, chr(0)))
             appendme.extend([FileTypes["TI_PPRGM_TYPE"]])
             appendme.extend([0, 0, 0])
@@ -374,6 +375,7 @@ class Client:
             odata+=appendme
             appendme=[]
         if upd_canonical:
+            self.server.emit_log(logging.INFO, f"Updating canonical libs: {send_as_canonical}")
             for lib in send_as_canonical:
                 appendme+=self.parse_string(PaddedString(lib, 8, chr(0)))
                 appendme.extend([FileTypes["TI_APPVAR_TYPE"]])
@@ -383,6 +385,7 @@ class Client:
             odata+=appendme
             appendme=[]
         if upd_non_canonical:
+            self.server.emit_log(logging.INFO, f"Updating non-canonical libs: {send_as_noncanonical}")
             for lib in send_as_noncanonical:
                 appendme+=self.parse_string(PaddedString(lib, 8, chr(0)))
                 appendme.extend([FileTypes["TI_APPVAR_TYPE"]])
