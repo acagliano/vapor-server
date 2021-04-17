@@ -347,11 +347,9 @@ class Client:
         upd_prgm = flags[0]
         upd_canonical = flags[1]
         upd_non_canonical=flags[2]
-        sha1_dummy = [0 for i in range(0, 20)]
         canonical_libs=["LIBLOAD", "GRAPHX", "FILEIOC", "KEYPADC", "FONTLIBC", "USBDRVCE", "SRLDRVCE", "FATDRVCE"]
         send_as_canonical=[]
         send_as_noncanonical=[]
-        appendme=[]
         odata=[]
         if upd_canonical or upd_non_canonical:
             for obj in os.scandir("/home/servers/software/libs/"):
@@ -367,37 +365,33 @@ class Client:
                                 send_as_noncanonical.append(fileparts[0])
                 except:
                     continue
-        if upd_prgm:
-            self.server.emit_log(logging.INFO, "Updating main program")
-            appendme+=self.parse_string(PaddedString("VAPOR", 8, chr(0)))
-            appendme.extend([FileTypes["TI_PPRGM_TYPE"]])
-            appendme.extend([0, 0, 0])
-            appendme.extend(sha1_dummy)
-            appendme.extend([0])
-            odata+=appendme
-            appendme=[]
+            
         if upd_canonical:
             self.server.emit_log(logging.INFO, f"Updating canonical libs: {send_as_canonical}")
             for lib in send_as_canonical:
-                appendme+=self.parse_string(PaddedString(lib, 8, chr(0)))
-                appendme.extend([FileTypes["TI_APPVAR_TYPE"]])
-                appendme.extend([0, 0, 0])
-                appendme.extend(sha1_dummy)
-                appendme.extend([0])
-            odata+=appendme
-            appendme=[]
+                odata+=fileinfo_to_ps(lib, FileTypes["TI_APPVAR_TYPE"])
+                
         if upd_non_canonical:
             self.server.emit_log(logging.INFO, f"Updating non-canonical libs: {send_as_noncanonical}")
             for lib in send_as_noncanonical:
-                appendme+=self.parse_string(PaddedString(lib, 8, chr(0)))
-                appendme.extend([FileTypes["TI_APPVAR_TYPE"]])
-                appendme.extend([0, 0, 0])
-                appendme.extend(sha1_dummy)
-                appendme.extend([0])
-            odata+=appendme
+                odata+=fileinfo_to_ps(lib, FileTypes["TI_APPVAR_TYPE"])
+                
+        if upd_prgm:
+            self.server.emit_log(logging.INFO, "Updating main program")
+            odata+=fileinfo_to_ps("VAPOR", FileTypes["TI_PPRGM_TYPE"])
+                
         if(len(odata)):
             self.send([ControlCodes["SRVC_GET_REQ"]] + odata)
 
+    def fileinfo_to_ps(self, name, type):
+        sha1_dummy = [0 for i in range(0, 20)]
+        appendme=[]
+        appendme+=self.parse_string(PaddedString(name), 8, chr(0))
+        appendme.extend([type])
+        appendme.extend([0, 0, 0])
+        appendme.extend(sha1_dummy)
+        appendme.extend([0])
+        return appendme
    
     def parse_string(self, str):
         try:
